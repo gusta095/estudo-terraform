@@ -1,0 +1,35 @@
+import json
+import boto3
+import os
+
+ecs_client = boto3.client("ecs")
+
+def lambda_handler(event, context):
+    try:
+        action = event.get("action")  # "start" ou "stop"
+        cluster = event.get("cluster")
+        service = event.get("service")
+
+        if not cluster or not service or action not in ["start", "stop"]:
+            return {"statusCode": 400, "body": "Parâmetros inválidos"}
+
+        if action == "start":
+            response = ecs_client.update_service(
+                cluster=cluster,
+                service=service,
+                desiredCount=1  # Define 1 task ativa
+            )
+        else:  # action == "stop"
+            response = ecs_client.update_service(
+                cluster=cluster,
+                service=service,
+                desiredCount=0  # Para todas as tasks
+            )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": f"Serviço {action} com sucesso!", "response": response})
+        }
+
+    except Exception as e:
+        return {"statusCode": 500, "body": str(e)}

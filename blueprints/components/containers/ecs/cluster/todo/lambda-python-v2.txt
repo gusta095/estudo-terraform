@@ -1,0 +1,63 @@
+import boto3
+import os
+
+ecs_client = boto3.client("ecs")
+dynamodb = boto3.resource("dynamodb")
+
+# Variáveis de ambiente
+CLUSTER_NAME = os.getenv("ECS_CLUSTER_NAME")
+SERVICE_NAME = os.getenv("ECS_SERVICE_NAME")
+DYNAMODB_TABLE = os.getenv("DYNAMODB_TABLE_NAME")  # Nome da tabela no DynamoDB
+
+table = dynamodb.Table(DYNAMODB_TABLE)
+
+def get_current_desired_count():
+    """Obtém o desiredCount atual do serviço ECS."""
+    response = ecs_client.describe_services(
+        cluster=CLUSTER_NAME,
+        services=[SERVICE_NAME]
+    )
+    return response["services"][0]["desiredCount"]
+
+def save_desired_count(count):
+    """Salva o desiredCount no DynamoDB."""
+    table.put_item(
+        Item={
+            "ClusterName": CLUSTER_NAME,
+            "ServiceName": SERVICE_NAME,
+            "DesiredCount": count
+        }
+    )
+
+def load_desired_count():
+    """Recupera o último desiredCount salvo no DynamoDB."""
+    response = table.get_item(
+        Key={
+            "ClusterName": CLUSTER_NAME,
+            "ServiceName": SERVICE_NAME
+        }
+    )
+    return response.get("Item", {}).get("DesiredCount", 1)  # Se não existir, assume 1
+
+def lambda_handler(event, context):
+    action = event.get("action")  # "start" ou "stop"
+
+    if action == "stop":
+        current_count = get_current_desired_count()
+        save_desired_count(current_count)  # Salva antes de desligar
+        new_count = 0
+    elif action == "start":
+        new_count = load_desired_count()  # Restaura último count salvo
+    else:
+        return {"status": "error", "message": "Ação inválida. Use 'start' ou 'stop'."}
+
+    ecs_client.update_service(
+        cluster=CLUSTER_NAME,
+        service=SERVICE_NAME,
+        desiredCount=new_count
+    )
+
+    return {
+        "status": "success",
+        "message": f"Serviço {SERVICE_NAME} atualizado para desiredCount = {new_count}"
+    }
